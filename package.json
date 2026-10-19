@@ -1,0 +1,17 @@
+{
+  "name": "fomo-lab-v3",
+  "version": "3.0.0",
+  "private": true,
+  "description": "Solana meme token discovery and paper trading demo",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "ws": "^8.18.0"
+  }
+}

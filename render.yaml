@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: fomo-lab-v3
+    runtime: node
+    plan: starter
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATA_FILE
+        value: /var/data/fomo-state.json
+      - key: PUMPPORTAL_API_KEY
+        sync: false
+    disk:
+      name: fomo-data
+      mountPath: /var/data
+      sizeGB: 1
