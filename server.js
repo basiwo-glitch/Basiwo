@@ -209,6 +209,6 @@ server.listen(PORT,'0.0.0.0',()=>{
   console.log(`FOMO Lab v3 listening on ${PORT}; persistent file ${DATA_FILE}`);
   connectPumpPortal();
   pollMarket();
-  marketTimer=setInterval(pollMarket,5000);
+  marketTimer=setInterval(pollMarket,60000);
 });
 process.on('SIGTERM',()=>{clearInterval(marketTimer);clearTimeout(reconnectTimer);try{pumpWs?.close()}catch{}persist();server.close(()=>process.exit(0))});
