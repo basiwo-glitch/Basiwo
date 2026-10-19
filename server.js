@@ -148,8 +148,7 @@ async function fetchJson(url) {
 async function pollMarket() {
   try {
     // Refresh known candidate tokens in small batches. Also use latest profiles as a fallback discovery feed.
-    const profileData=await fetchJson('https://api.dexscreener.com/token-profiles/latest/v1');
-    const profileAddresses=(Array.isArray(profileData)?profileData:[]).filter(x=>x.chainId==='solana'&&x.tokenAddress).map(x=>x.tokenAddress);
+    const profileAddresses=[];
     const addresses=[...new Set([...latestTokens.keys(),...Object.keys(state.positions),...profileAddresses])].slice(-90);
     for(let i=0;i<addresses.length;i+=30) {
       const batch=addresses.slice(i,i+30);
