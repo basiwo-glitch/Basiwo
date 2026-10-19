@@ -127,7 +127,7 @@ async function connectPumpPortal() {
   if (pumpWs && (pumpWs.readyState===WebSocket.OPEN || pumpWs.readyState===WebSocket.CONNECTING)) return;
   clearTimeout(reconnectTimer);
   feedStatus='connecting'; broadcast('status');
-  pumpWs=new WebSocket(`wss://pumpportal.fun/api/data'+(API_KEY?'api-key='+encodeURIComponent(API_KEY):''));
+  pumpWs = new WebSocket('wss://pumpportal.fun/api/data' + (API_KEY ? '?api-key=' + encodeURIComponent(API_KEY) : ''));
   pumpWs.on('open',()=> {
     feedStatus='connected'; broadcast('status');
     pumpWs.send(JSON.stringify({method:'subscribeNewToken'}));
