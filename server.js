@@ -141,8 +141,16 @@ async function connectPumpPortal() {
   pumpWs.on('error',err=>{console.error('PumpPortal WebSocket:',err.message);feedStatus='error';broadcast('status');try{pumpWs.close()}catch{}});
 }
 async function fetchJson(url) {
-  const r=await fetch(url,{headers:{'accept':'application/json'},signal:AbortSignal.timeout(9000)});
-  if(!r.ok) throw new Error(`HTTP ${r.status} from market API`);
+  const r = await fetch(url, {
+    headers: { accept: 'application/json' },
+    signal: AbortSignal.timeout(9000)
+  });
+
+  if (!r.ok) {
+    const body = (await r.text()).slice(0, 200);
+    throw new Error(`HTTP ${r.status} | ${body || 'No response body'}`);
+  }
+
   return r.json();
 }
 async function pollMarket() {
