@@ -155,57 +155,100 @@ async function fetchJson(url) {
   return r.json();
 }
 async function pollMarket() {
-   if (Date.now() < rateLimitedUntil) {
-    console.log('DEX paused after rate limit.');
-    return;
-  }
-  try {
-    // Refresh known candidate tokens in small batches. Also use latest profiles as a fallback discovery feed.
-    const profileAddresses=[];
-    const addresses=[...new Set([...latestTokens.keys(),...Object.keys(state.positions),...profileAddresses])].slice(-90);
-    for(let i=0;i<addresses.length;i+=30) {
-      const batch=addresses.slice(i,i+30);
-      if(!batch.length)continue;
-      let pairs=[];
-      try {
-  pairs = await fetchJson('https://api.dexscreener.com/tokens/v1/solana/' + batch.join(','));
-} catch (e) {
-  console.error('DEX batch:', e.message);
+  const now = Date.now();
+  if (now < rateLimitedUntil) return;
 
-  if (String(e.message).includes('HTTP 429')) {
-    rateLimitedUntil = Date.now() + 5 * 60 * 1000;
-    console.error('DEX paused for 5 minutes after rate limit.');
-    return;
-  }
+  const addresses = [...new Set([
+    ...latestTokens.keys(),
+    ...Object.keys(state.positions)
+  ])].slice(-8);
 
-  continue;
-}
-      const byAddr=new Map();
-      for(const p of pairs||[]) {
-        if(p.chainId!=='solana'||!p.baseToken?.address||!p.priceUsd)continue;
-        const addr=p.baseToken.address, liq=safeNum(p.liquidity?.usd);
-        const old=byAddr.get(addr);
-        if(!old||liq>safeNum(old.liquidity?.usd))byAddr.set(addr,p);
+  for (const addr of addresses) {
+    try {
+      const url =
+        'https://api.geckoterminal.com/api/v2/networks/solana/tokens/' +
+        encodeURIComponent(addr) + '/pools';
+
+      const result = await fetchJson(url);
+      const pools = result.data || [];
+      let best = null;
+
+      for (const pool of pools) {
+        const a = pool.attributes || {};
+        const baseId = pool.relationships?.base_token?.data?.id || '';
+        const quoteId = pool.relationships?.quote_token?.data?.id || '';
+
+        let price = 0;
+        if (baseId.endsWith('_' + addr) || baseId === 'solana_' + addr) {
+          price = safeNum(a.base_token_price_usd);
+        } else if (quoteId.endsWith('_' + addr) || quoteId === 'solana_' + addr) {
+          price = safeNum(a.quote_token_price_usd);
+        }
+
+        const liquidity = safeNum(a.reserve_in_usd);
+        if (price > 0 && (!best || liquidity > best.liquidity)) {
+          best = {
+            price,
+            liquidity,
+            volume: safeNum(a.volume_usd?.h24),
+            buys: safeNum(a.transactions?.h24?.buys),
+            sells: safeNum(a.transactions?.h24?.sells),
+            change: safeNum(a.price_change_percentage?.h24),
+            createdAt: a.pool_created_at ? Date.parse(a.pool_created_at) : 0,
+            url: 'https://www.geckoterminal.com/solana/pools/' + a.address
+          };
+        }
       }
-      for(const [addr,p] of byAddr) {
-        const old=latestTokens.get(addr)||{address:addr,name:p.baseToken.name,symbol:p.baseToken.symbol,createdAt:Date.now(),source:'DEX Screener profile'};
-        const token={...old,name:p.baseToken.name||old.name,symbol:p.baseToken.symbol||old.symbol,priceUsd:safeNum(p.priceUsd),liquidityUsd:safeNum(p.liquidity?.usd),volume24h:safeNum(p.volume?.h24),buys24h:safeNum(p.txns?.h24?.buys),sells24h:safeNum(p.txns?.h24?.sells),change24h:safeNum(p.priceChange?.h24),url:p.url||old.url,status:'market data'};
-        token.score=scoreToken(token);
-        latestTokens.set(addr,token);
-        const pos=state.positions[addr]; if(pos) pos.currentPrice=token.priceUsd;
-        if(pos) {
-          const change=(token.priceUsd-pos.entryPrice)/pos.entryPrice*100;
-          if(change<=-STOP_LOSS_PCT) sellPaper(addr,'Stop-loss '+change.toFixed(1)+'%');
-          else if(change>=TAKE_PROFIT_PCT) sellPaper(addr,'Take-profit '+change.toFixed(1)+'%');
-        } else if(eligible(token)) buyPaper(token);
+
+      if (!best) continue;
+
+      const old = latestTokens.get(addr) || {
+        address: addr,
+        name: addr.slice(0, 8),
+        symbol: 'TOKEN',
+        createdAt: Date.now(),
+        source: 'PumpPortal WebSocket'
+      };
+
+      const token = {
+        ...old,
+        priceUsd: best.price,
+        liquidityUsd: best.liquidity,
+        volume24h: best.volume,
+        buys24h: best.buys,
+        sells24h: best.sells,
+        change24h: best.change,
+        url: best.url,
+        status: 'GeckoTerminal market data'
+      };
+
+      token.score = scoreToken(token);
+      latestTokens.set(addr, token);
+
+      const pos = state.positions[addr];
+      if (pos) {
+        pos.currentPrice = token.priceUsd;
+        const change =
+          (token.priceUsd - pos.entryPrice) / pos.entryPrice * 100;
+
+        if (change <= -STOP_LOSS_PCT) {
+          sellPaper(addr, 'Stop-loss ' + change.toFixed(1) + '%');
+        } else if (change >= TAKE_PROFIT_PCT) {
+          sellPaper(addr, 'Take-profit ' + change.toFixed(1) + '%');
+        }
+      } else if (eligible(token)) {
+        buyPaper(token);
       }
+    } catch (e) {
+      console.error('GeckoTerminal token error:', addr, e.message);
     }
-    lastMarketPollAt=new Date().toISOString();
-    persist(); broadcast('state');
-  } catch(e) {
-    console.error('Market polling failed:',e.message);
-    broadcast('error',{message:'DEX Screener feed temporarily unavailable: '+e.message});
+
+    await new Promise(resolve => setTimeout(resolve, 8000));
   }
+
+  lastMarketPollAt = new Date().toISOString();
+  persist();
+  broadcast('state');
 }
 app.get('/api/health',(req,res)=>res.json({ok:true,feedStatus,uptimeSeconds:Math.round(process.uptime()),apiKeyConfigured:!!API_KEY,positions:Object.keys(state.positions).length,lastMarketPollAt,lastFeedMessageAt}));
 app.get('/api/state',(req,res)=>res.json(publicState()));
