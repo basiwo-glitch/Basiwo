@@ -30,6 +30,7 @@ let pumpWs = null, reconnectTimer = null, marketTimer = null, feedStatus = 'star
 let latestTokens = new Map();
 let lastFeedMessageAt = null;
 let lastMarketPollAt = null;
+let rateLimitedUntil = 0;
 let scanCount = 0;
 let autoEnabled = true;
 let seenMints = new Set(state.seenMints || []);
@@ -154,6 +155,10 @@ async function fetchJson(url) {
   return r.json();
 }
 async function pollMarket() {
+   if (Date.now() < rateLimitedUntil) {
+    console.log('DEX paused after rate limit.');
+    return;
+  }
   try {
     // Refresh known candidate tokens in small batches. Also use latest profiles as a fallback discovery feed.
     const profileAddresses=[];
@@ -162,7 +167,19 @@ async function pollMarket() {
       const batch=addresses.slice(i,i+30);
       if(!batch.length)continue;
       let pairs=[];
-      try{pairs=await fetchJson('https://api.dexscreener.com/tokens/v1/solana/'+batch.join(','))}catch(e){console.error('DEX batch:',e.message);continue}
+      try {
+  pairs = await fetchJson('https://api.dexscreener.com/tokens/v1/solana/' + batch.join(','));
+} catch (e) {
+  console.error('DEX batch:', e.message);
+
+  if (String(e.message).includes('HTTP 429')) {
+    rateLimitedUntil = Date.now() + 5 * 60 * 1000;
+    console.error('DEX paused for 5 minutes after rate limit.');
+    return;
+  }
+
+  continue;
+}
       const byAddr=new Map();
       for(const p of pairs||[]) {
         if(p.chainId!=='solana'||!p.baseToken?.address||!p.priceUsd)continue;
